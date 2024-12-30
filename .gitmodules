@@ -1,0 +1,3 @@
+[submodule "loni_processing_pipeline"]
+	path = loni_processing_pipeline
+	url = https://github.com/lasyasreepada/loni_processing_pipeline.git
