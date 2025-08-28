@@ -1,0 +1,59 @@
+# 1. Linear modelling (sesame) to get query set
+```{r,eval=FALSE}
+se <- readRDS("~/PART_AD/ROSMAP/ROSMAP_SE.rds")
+n <- 50000 #downsample for demo
+se2 <- se[sample(rownames(se),n),]
+colData(se2)$log_nft_mf <- log(colData(se2)$nft_mf + 1)
+cg_ok <- (checkLevels(assay(se2), colData(se2)$sex) &
+    checkLevels(assay(se2), colData(se2)$sample_plate))
+res <- DML(se2[cg_ok,],~age+sex+sample_plate+log_nft_mf,
+           BPPARAM=BiocParallel::MulticoreParam(40))
+smry <- summaryExtractTest(res)
+smry$FDR <- p.adjust(smry$Pval_age,method="fdr")
+smry %>% arrange(FDR) %>%
+  dplyr::select(Probe_ID,Est_age,FDR_Age)
+```
+
+# 2. Plot results from modelling 
+```{r,eval=FALSE}
+install_github("zhou-lab/knowYourCG")
+smry$estimate <- smry$Est_age
+KYCG_plotVolcano(smry,label_by = "Probe_ID")
+age_p <- setNames(-log10(smry$Pval_age),smry$Probe_ID)
+KYCG_plotManhattan(age_p)
+```
+
+# 3. Test enrichment of DMPs and plot results 
+```{r,eval=FALSE}
+qry_hyper <- smry %>% 
+  filter(FDR < .05,Est_age > 0) %>% 
+  pull(Probe_ID)
+res_hyper <- testEnrichment(qry_hyper)
+
+KYCG_plotEnrichAll(res_hyper)
+KYCG_plotDot(res_hyper)
+```
+
+# 4. Another example using custom dbs
+```{r,eval=FALSE}
+se <- readRDS("~/PART_AD/PWG/20230805_PWG_SE_New.rds")
+betas <- assay(se) %>% cleanMatrixForClusterW(.) %>%
+  imputeRowMean(.)
+pca <- prcomp(t(betas))
+df <- cbind(pca$x, as_tibble(colData(se)[colnames(betas),]))
+saveRDS(df,file="kycg_demo_pwg.rds")
+ggplot(df,aes(x=PC1,y=PC2)) + geom_point()
+
+#get query and dbs
+pc1 <- names(sort(pca$rotation[,1],decreasing = FALSE))  # Loadings for PC1
+#git clone git@github.com:zhou-lab/KYCG_knowledgebase_EPIC.git
+db_dir <- "~/features/EPIC/hg38/TiSigLoyfer.20221209.gz"
+dbs <- knowYourCG:::loadDBs(db_dir)
+names(dbs) <- vapply(dbs,function(x) attr(x,"dbname"),character(1))
+
+n <- 200
+res <- testEnrichment(pc1[1:n],databases = dbs,platform="EPIC")
+saveRDS(res,"kycg_demo_pwg_enr.rds")
+res$dbname <- sub("TiSigLoyfer;","",res$dbname)
+knowYourCG::KYCG_plotDot(res)
+```
